@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0b5d3b">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<title>Thee Onset Enterprise</title>
+<style>
+:root{--g:#0b5d3b;--y:#f5b700;--bg:#f4f6f5;--card:#fff;--tx:#17211c;--mu:#6b7a72;--red:#c62828;--ok:#1b8a4b}
+@media(prefers-color-scheme:dark){:root{--bg:#0f1512;--card:#19211d;--tx:#e8f0eb;--mu:#8fa196}}
+*{box-sizing:border-box}
+body{margin:0;font-family:system-ui,sans-serif;background:var(--bg);color:var(--tx);padding-bottom:80px}
+header{background:var(--g);color:#fff;padding:calc(env(safe-area-inset-top,0px) + 16px) 16px 22px}
+header h1{margin:0;font-size:18px}
+header .nw{font-size:30px;font-weight:700;margin-top:6px}
+header small{opacity:.8}
+main{padding:12px}
+.card{background:var(--card);border-radius:14px;padding:14px;margin-bottom:12px;box-shadow:0 1px 3px #0002}
+.row{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:10px 0;border-bottom:1px solid #8883}
+.row:last-child{border:0}
+.mu{color:var(--mu);font-size:13px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.stat b{display:block;font-size:18px}
+.pos{color:var(--ok)}.neg{color:var(--red)}
+nav{position:fixed;bottom:0;left:0;right:0;display:flex;background:var(--card);border-top:1px solid #8883;padding-bottom:env(safe-area-inset-bottom,0px)}
+nav button{flex:1;border:0;background:none;color:var(--mu);padding:12px 0;font-size:12px}
+nav button.on{color:var(--g);font-weight:700}
+input,select{width:100%;padding:12px;margin:6px 0;border-radius:10px;border:1px solid #8886;background:var(--bg);color:var(--tx);font-size:16px}
+.btn{width:100%;padding:13px;border:0;border-radius:10px;background:var(--g);color:#fff;font-size:16px;font-weight:600;margin-top:6px}
+.btn.s{width:auto;padding:6px 10px;font-size:12px;margin:0;background:#8885;color:var(--tx)}
+.btn.y{background:var(--y);color:#222}
+.fab{position:fixed;right:16px;bottom:78px;width:56px;height:56px;border-radius:50%;border:0;background:var(--y);font-size:30px;color:#222;box-shadow:0 3px 8px #0006}
+.modal{position:fixed;inset:0;background:#0008;display:none;align-items:flex-end;z-index:9}
+.modal.on{display:flex}
+.sheet{background:var(--card);width:100%;border-radius:18px 18px 0 0;padding:18px;max-height:90vh;overflow:auto}
+.bar{height:8px;background:#8884;border-radius:4px;overflow:hidden;margin-top:6px}
+.bar i{display:block;height:100%;background:var(--ok)}
+h3{margin:4px 0 8px}
+</style>
+</head>
+<body>
+<header>
+  <h1>Thee Onset Enterprise</h1>
+  <div class="nw" id="nw">KES 0</div>
+  <small>Net worth (assets − debts)</small>
+</header>
+<main id="main"></main>
+<button class="fab" onclick="openAdd()">+</button>
+<nav id="nav"></nav>
+
+<div class="modal" id="modal"><div class="sheet" id="sheet"></div></div>
+
+<script>
+const KEY="onset_data_v1";
+const TABS=[["home","🏠","Home"],["tx","💸","Money"],["debt","📉","Debts"],["asset","💰","Assets"],["more","⚙️","More"]];
+const CATS=["Food","Transport","Airtime & Data","Rent","Utilities","School fees","Health","Shopping","Business","Chama/Savings","Other"];
+let tab="home";
+let db=load();
+
+function load(){try{return JSON.parse(localStorage.getItem(KEY))||{tx:[],debts:[],assets:[],budget:0}}catch(e){return{tx:[],debts:[],assets:[],budget:0}}}
+function save(){try{localStorage.setItem(KEY,JSON.stringify(db))}catch(e){alert("Could not save data")}}
+const $=id=>document.getElementById(id);
+const kes=n=>"KES "+Number(n||0).toLocaleString("en-KE",{maximumFractionDigits:0});
+const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,6);
+const today=()=>new Date().toISOString().slice(0,10);
+const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+
+const sum=(a,f)=>a.reduce((s,x)=>s+f(x),0);
+const debtLeft=d=>Math.max(0,d.amount-sum(d.payments||[],p=>p.amount));
+const totals=()=>{
+  const m=today().slice(0,7);
+  const inc=sum(db.tx.filter(t=>t.type==="in"&&t.date.startsWith(m)),t=>t.amount);
+  const exp=sum(db.tx.filter(t=>t.type==="out"&&t.date.startsWith(m)),t=>t.amount);
+  const bal=sum(db.tx,t=>t.type==="in"?t.amount:-t.amount);
+  const assets=sum(db.assets,a=>a.value);
+  const owe=sum(db.debts.filter(d=>d.dir==="owe"),debtLeft);
+  const owed=sum(db.debts.filter(d=>d.dir==="owed"),debtLeft);
+  return{inc,exp,bal,assets,owe,owed,nw:bal+assets+owed-owe};
+};
+
+function render(){
+  const t=totals();
+  $("nw").textContent=kes(t.nw);
+  $("nav").innerHTML=TABS.map(x=>`<button class="${tab===x[0]?"on":""}" onclick="go('${x[0]}')">${x[1]}<br>${x[2]}</button>`).join("");
+  $("main").innerHTML=({home,tx:txView,debt:debtView,asset:assetView,more:moreView})[tab](t);
+}
+function go(t){tab=t;render();window.scrollTo(0,0)}
+
+function home(t){
+  const pct=db.budget?Math.min(100,t.exp/db.budget*100):0;
+  const byCat={};
+  db.tx.filter(x=>x.type==="out"&&x.date.startsWith(today().slice(0,7))).forEach(x=>byCat[x.cat]=(byCat[x.cat]||0)+x.amount);
+  const cats=Object.entries(byCat).sort((a,b)=>b[1]-a[1]).slice(0,5);
+  return `
+  <div class="grid">
+    <div class="card stat"><span class="mu">Cash balance</span><b class="${t.bal<0?"neg":""}">${kes(t.bal)}</b></div>
+    <div class="card stat"><span class="mu">Assets</span><b class="pos">${kes(t.assets)}</b></div>
+    <div class="card stat"><span class="mu">I owe</span><b class="neg">${kes(t.owe)}</b></div>
+    <div class="card stat"><span class="mu">Owed to me</span><b>${kes(t.owed)}</b></div>
+  </div>
+  <div class="card"><h3>This month</h3>
+    <div class="row"><span>Income</span><b class="pos">${kes(t.inc)}</b></div>
+    <div class="row"><span>Spent</span><b class="neg">${kes(t.exp)}</b></div>
+    ${db.budget?`<div class="mu">Budget ${kes(db.budget)} · ${pct.toFixed(0)}% used</div><div class="bar"><i style="width:${pct}%;background:${pct>90?"var(--red)":"var(--ok)"}"></i></div>`:`<div class="mu">Set a monthly budget in More.</div>`}
+  </div>
+  <div class="card"><h3>Top spending</h3>${cats.length?cats.map(c=>`<div class="row"><span>${esc(c[0])}</span><b>${kes(c[1])}</b></div>`).join(""):'<div class="mu">No spending yet this month.</div>'}</div>`;
+}
+function txView(){
+  const l=[...db.tx].sort((a,b)=>b.date.localeCompare(a.date)).slice(0,100);
+  return `<div class="card"><h3>Recent transactions</h3>${l.length?l.map(x=>`
+  <div class="row"><div>${esc(x.note||x.cat)}<div class="mu">${x.date} · ${esc(x.cat)}${x.method?" · "+esc(x.method):""}</div></div>
+  <div><b class="${x.type==="in"?"pos":"neg"}">${x.type==="in"?"+":"-"}${kes(x.amount)}</b><br><button class="btn s" onclick="del('tx','${x.id}')">Delete</button></div></div>`).join(""):'<div class="mu">Tap + to add income or expense.</div>'}</div>`;
+}
+function debtView(){
+  const f=dir=>db.debts.filter(d=>d.dir===dir).map(d=>{
+    const left=debtLeft(d),paid=d.amount-left,p=d.amount?paid/d.amount*100:0;
+    return `<div class="row" style="display:block"><div style="display:flex;justify-content:space-between"><b>${esc(d.name)}</b><b class="${dir==="owe"?"neg":""}">${kes(left)}</b></div>
+    <div class="mu">Total ${kes(d.amount)}${d.due?" · due "+d.due:""}${d.note?" · "+esc(d.note):""}</div>
+    <div class="bar"><i style="width:${p}%"></i></div>
+    <div style="margin-top:8px;display:flex;gap:6px"><button class="btn s" onclick="openPay('${d.id}')">${dir==="owe"?"Record payment":"Record received"}</button><button class="btn s" onclick="del('debts','${d.id}')">Delete</button></div></div>`}).join("")||'<div class="mu">None yet.</div>';
+  return `<div class="card"><h3>I owe (Nadaiwa)</h3>${f("owe")}</div><div class="card"><h3>Owed to me (Ninadai)</h3>${f("owed")}</div>`;
+}
+function assetView(t){
+  return `<div class="card"><h3>Assets · ${kes(t.assets)}</h3>${db.assets.length?db.assets.map(a=>`
+  <div class="row"><div>${esc(a.name)}<div class="mu">${esc(a.type)}${a.note?" · "+esc(a.note):""}</div></div>
+  <div><b>${kes(a.value)}</b><br><button class="btn s" onclick="del('assets','${a.id}')">Delete</button></div></div>`).join(""):'<div class="mu">Add land, M-Pesa float, M-Shwari, SACCO shares, stocks, livestock, vehicles...</div>'}</div>`;
+}
+function moreView(){
+  return `<div class="card"><h3>Monthly budget (KES)</h3><input id="bud" type="number" inputmode="numeric" value="${db.budget||""}" placeholder="e.g. 30000"><button class="btn" onclick="db.budget=+$('bud').value||0;save();render()">Save budget</button></div>
+  <div class="card"><h3>Backup</h3><div class="mu">Your data lives only on this phone. Export regularly.</div>
+  <button class="btn" onclick="exportData()">Export backup</button>
+  <input type="file" id="imp" accept=".json" onchange="importData(event)"></div>
+  <div class="card"><button class="btn" style="background:var(--red)" onclick="if(confirm('Delete ALL data?')){db={tx:[],debts:[],assets:[],budget:0};save();render()}">Erase all data</button></div>`;
+}
+
+function del(k,id){if(confirm("Delete this item?")){db[k]=db[k].filter(x=>x.id!==id);save();render()}}
+function show(h){$("sheet").innerHTML=h;$("modal").classList.add("on")}
+function hide(){$("modal").classList.remove("on")}
+$("modal").addEventListener("click",e=>{if(e.target.id==="modal")hide()});
+
+function openAdd(){
+  if(tab==="debt")return addDebt();
+  if(tab==="asset")return addAsset();
+  addTx();
+}
+function addTx(){show(`<h3>Add transaction</h3>
+<select id="ty"><option value="out">Expense</option><option value="in">Income</option></select>
+<input id="am" type="number" inputmode="decimal" placeholder="Amount (KES)">
+<select id="ct">${CATS.map(c=>`<option>${c}</option>`).join("")}<option>Salary</option><option>Business income</option></select>
+<select id="me"><option>M-Pesa</option><option>Cash</option><option>Bank</option><option>Airtel Money</option></select>
+<input id="nt" placeholder="Note (optional)"><input id="dt" type="date" value="${today()}">
+<button class="btn" onclick="saveTx()">Save</button>`)}
+function saveTx(){const a=+$("am").value;if(!(a>0))return alert("Enter an amount");
+  db.tx.push({id:uid(),type:$("ty").value,amount:a,cat:$("ct").value,method:$("me").value,note:$("nt").value.trim(),date:$("dt").value||today()});
+  save();hide();tab="tx";render()}
+function addDebt(){show(`<h3>Add debt</h3>
+<select id="dr"><option value="owe">I owe someone (loan, Fuliza, Hustler Fund, shylock...)</option><option value="owed">Someone owes me</option></select>
+<input id="dn" placeholder="Person / lender name"><input id="da" type="number" inputmode="decimal" placeholder="Total amount (KES)">
+<input id="dd" type="date"><input id="dnote" placeholder="Note (optional)">
+<button class="btn" onclick="saveDebt()">Save</button>`)}
+function saveDebt(){const a=+$("da").value,n=$("dn").value.trim();if(!n||!(a>0))return alert("Enter name and amount");
+  db.debts.push({id:uid(),dir:$("dr").value,name:n,amount:a,due:$("dd").value,note:$("dnote").value.trim(),payments:[]});
+  save();hide();tab="debt";render()}
+function openPay(id){show(`<h3>Record payment</h3><input id="pa" type="number" inputmode="decimal" placeholder="Amount (KES)">
+<button class="btn" onclick="savePay('${id}')">Save</button>`)}
+function savePay(id){const a=+$("pa").value;if(!(a>0))return alert("Enter an amount");
+  const d=db.debts.find(x=>x.id===id);d.payments.push({amount:a,date:today()});save();hide();render()}
+function addAsset(){show(`<h3>Add asset</h3>
+<input id="an" placeholder="Name (e.g. Plot in Nakuru)">
+<select id="at"><option>Cash/M-Pesa</option><option>M-Shwari/KCB M-Pesa</option><option>SACCO/Chama</option><option>Land/Property</option><option>Stocks/Bonds/MMF</option><option>Vehicle</option><option>Livestock</option><option>Business</option><option>Other</option></select>
+<input id="av" type="number" inputmode="decimal" placeholder="Current value (KES)"><input id="anote" placeholder="Note (optional)">
+<button class="btn" onclick="saveAsset()">Save</button>`)}
+function saveAsset(){const v=+$("av").value,n=$("an").value.trim();if(!n||!(v>=0)||$("av").value==="")return alert("Enter name and value");
+  db.assets.push({id:uid(),name:n,type:$("at").value,value:v,note:$("anote").value.trim()});save();hide();tab="asset";render()}
+
+function exportData(){const b=new Blob([JSON.stringify(db)],{type:"application/json"});const a=document.createElement("a");
+  a.href=URL.createObjectURL(b);a.download="onset-backup-"+today()+".json";a.click()}
+function importData(e){const f=e.target.files[0];if(!f)return;const r=new FileReader();
+  r.onload=()=>{try{const d=JSON.parse(r.result);if(!d.tx||!d.debts||!d.assets)throw 0;db=d;save();render();alert("Restored")}catch(x){alert("Invalid backup file")}};r.readAsText(f)}
+
+if("serviceWorker" in navigator)navigator.serviceWorker.register("sw.js").catch(()=>{});
+render();
+</script>
+</body>
+</html>
